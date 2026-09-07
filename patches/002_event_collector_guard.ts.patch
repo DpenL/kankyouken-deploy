@@ -1,0 +1,116 @@
+002_event_collector_guard.ts.patch
+==================================
+
+Applies to: KanKyouKen/supabase/functions/event-collector/index.ts
+
+What it does
+------------
+Validates event_type against the study's registered event_schemas row, writes an
+audit_log entry whenever an event is rejected OR when a study has no schema
+registered at all, and finally populates events.schema_id -- which is NULL on every
+row today, so the versioning table is currently decorative.
+
+Both failure modes are audited on purpose. A rejected event is an incident; a study
+running with no registered schema is a silent gap, and silence is exactly what made
+the original problem invisible.
+
+audit_log shape (from the live schema): { user_id uuid?, action text, target text }.
+
+
+STEP 1 -- insert after the has_study_access check (currently ends line 38),
+          before the `const response = await fetch(.../events` insert.
+--------------------------------------------------------------------------------
+
+  // Resolve the study's registered event schema. Absence is a condition worth
+  // recording, not a reason to fail: refusing every event because nobody registered
+  // a schema would take the study down.
+  let schemaId: string | null = null;
+  const schemaRes = await fetch(
+    `${ctx.supabaseUrl}/rest/v1/event_schemas?study_id=eq.${body.study_id}` +
+    `&select=id,version,definition&order=created_at.desc&limit=1`,
+    { headers: { "apikey": ctx.serviceKey, "Authorization": `Bearer ${ctx.serviceKey}` } },
+  );
+  const [schema] = schemaRes.ok ? await schemaRes.json() : [];
+
+  if (!schema) {
+    await audit(ctx, "event_schema_missing",
+      `study:${body.study_id}:event_type:${body.event_type}`);
+  } else {
+    schemaId = schema.id;
+    const allowed: string[] = schema.definition?.event_types ?? [];
+    if (allowed.length > 0 && !allowed.includes(body.event_type)) {
+      await audit(ctx, "event_type_rejected",
+        `study:${body.study_id}:participant:${body.participant_id}` +
+        `:event_type:${body.event_type}:schema:${schema.version}`);
+      throw Errors.badRequest(
+        `Unknown event_type "${body.event_type}" for this study (schema ${schema.version})`,
+      );
+    }
+  }
+
+
+STEP 2 -- add schema_id to the insert body (currently ends at task_id, line 58).
+--------------------------------------------------------------------------------
+
+      task_id: body.task_id ?? null,
+      schema_id: schemaId,          // <-- add this line
+
+
+STEP 3 -- add the helper at the end of the file, outside the serve() call.
+--------------------------------------------------------------------------------
+
+/**
+ * Fire-and-record an audit entry. Never throws: an audit write failing must not
+ * turn a good event into a lost one, but it must not vanish either, so a failure
+ * is logged to stderr where the container logs will keep it.
+ */
+async function audit(ctx: { supabaseUrl: string; serviceKey: string }, action: string, target: string) {
+  try {
+    const res = await fetch(`${ctx.supabaseUrl}/rest/v1/audit_log`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": ctx.serviceKey,
+        "Authorization": `Bearer ${ctx.serviceKey}`,
+      },
+      body: JSON.stringify({ action, target }),
+    });
+    if (!res.ok) console.error("audit_log write failed:", action, target, await res.text());
+  } catch (e) {
+    console.error("audit_log write threw:", action, target, e);
+  }
+}
+
+
+STEP 4 -- register a schema row per study, or the check above never fires.
+--------------------------------------------------------------------------------
+
+INSERT INTO public.event_schemas (study_id, version, name, definition) VALUES (
+  '<STUDY_UUID>',
+  'kn202-v1',
+  'KN-202 pilot event taxonomy',
+  '{"event_types":[
+      "consent_given","account_created","questionnaire_submitted","prescreen_submitted",
+      "session_started","session_completed","test_item_answered","practice_prompt_shown",
+      "practice_revealed","practice_self_report","usability_submitted",
+      "withdrawal_requested","researcher_override","client_error"
+   ]}'::jsonb
+);
+
+The prescreening study, if it gets its own study_id, needs its own row -- it only
+emits the four enrolment types.
+
+
+Verifying it works
+------------------
+  # should be rejected, and should appear in audit_log
+  curl -sS -X POST "$BASE/functions/v1/event-collector" \
+    -H "Content-Type: application/json" -H "apikey: $ANON_KEY" \
+    -d '{"participant_id":"'$PID'","study_id":"'$SID'","event_type":"consent_recorded"}'
+
+  docker exec -i supabase-db psql -U postgres -d "$POSTGRES_DB" \
+    -c "select action, target, timestamp from audit_log order by timestamp desc limit 5;"
+
+  # and a good one should now carry a schema_id
+  docker exec -i supabase-db psql -U postgres -d "$POSTGRES_DB" \
+    -c "select event_type, schema_id from events order by created_at desc limit 5;"
