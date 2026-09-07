@@ -17,3 +17,7 @@ www/study/
 # It is an artefact of deploying, not a source file - and leaving it untracked made
 # push.sh report its own repo DIRTY, caused by the file it had just written.
 DEPLOYED.txt
+
+# The frontend's VM env lives at %USERPROFILE%\.kankyouken\, never in a repo.
+# This guards against someone copying it in here anyway.
+frontend-env/frontend-vm.env
