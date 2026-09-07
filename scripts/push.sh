@@ -42,6 +42,25 @@ fi
 [ -f "$ENROL/dist/index.html" ] || die "EnrolmentApp/dist is empty — drop --no-build"
 [ -f "$FLASH/dist/index.html" ] || die "FlashCardApp/dist is empty — drop --no-build"
 
+# --no-build exists because WSL cannot build these: node_modules was installed on
+# Windows and carries rollup's win32 native binary. So the normal loop is "build on
+# Windows, push from WSL" - which makes it easy to edit a file, forget the build,
+# and deploy yesterday's bundle with nothing complaining. Refuse instead.
+stale_check() {
+  local repo="$1" name="$2" base="$3" offender
+  offender="$(find "$repo/src" "$repo/public" "$repo/package.json" \
+                -type f -newer "$repo/dist/index.html" -print -quit 2>/dev/null)"
+  [ -z "$offender" ] || die "$name: dist/ is older than its sources.
+       First offender: ${offender#"$repo"/}
+       You are about to deploy a stale bundle. Rebuild on Windows:
+         cd $repo && VITE_BASE_PATH=$base npm run build
+       then re-run, or drop --no-build to build here."
+}
+if [ "${1:-}" = "--no-build" ]; then
+  stale_check "$ENROL" EnrolmentApp /signup/
+  stale_check "$FLASH" FlashCardApp /study/
+fi
+
 # --- provenance ----------------------------------------------------------------
 # This is what we get instead of submodules: the exact commits behind what is live.
 cat > "$HERE/DEPLOYED.txt" <<EOF
