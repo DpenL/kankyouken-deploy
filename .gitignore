@@ -13,3 +13,7 @@ volumes/
 # (the landing page, kanji-commons) are version-controlled under www/.
 www/signup/
 www/study/
+# Written by scripts/push.sh on every push and rsync'd to the VM as provenance.
+# It is an artefact of deploying, not a source file - and leaving it untracked made
+# push.sh report its own repo DIRTY, caused by the file it had just written.
+DEPLOYED.txt
