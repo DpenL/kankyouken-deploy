@@ -63,8 +63,32 @@ log "config, scripts, static pages"
   "$HERE/" "$VM:$REMOTE/kankyouken-deploy/"
 
 log "client bundles"
-"${RSYNC[@]}" --delete "$ENROL/dist/" "$VM:$REMOTE/kankyouken-deploy/www/signup/"
-"${RSYNC[@]}" --delete "$FLASH/dist/" "$VM:$REMOTE/kankyouken-deploy/www/study/"
+# config.json is EXCLUDED from both syncs, deliberately.
+#
+# Each client ships a dist/config.json built from its local .env, and locally that
+# says mode "local" with an empty apiBase. The VM's copy is the live one - it points
+# at the real backend and is edited there. Without this exclude, --delete would
+# overwrite the live config with the local one on every push, and both clients would
+# quietly fall back to local mode: the flow still works, the participant sees nothing
+# wrong, and not one event reaches the server. Caddy already serves these two paths
+# with Cache-Control: no-store so an edit on the VM takes effect immediately.
+CFG_EXCLUDE=(--exclude 'config.json')
+
+"${RSYNC[@]}" "${CFG_EXCLUDE[@]}" --delete "$ENROL/dist/" "$VM:$REMOTE/kankyouken-deploy/www/signup/"
+"${RSYNC[@]}" "${CFG_EXCLUDE[@]}" --delete "$FLASH/dist/" "$VM:$REMOTE/kankyouken-deploy/www/study/"
+
+# First deploy has no config on the VM yet, and an excluded file is not a missing
+# file the script would otherwise notice. Say so rather than leaving a 404.
+for path in signup study; do
+  if ! ssh "$VM" "test -f $REMOTE/kankyouken-deploy/www/$path/config.json" 2>/dev/null; then
+    printf '\033[33mWARNING:\033[0m www/%s/config.json does not exist on the VM.\n' "$path"
+    printf '         The client cannot start without it. Seed it once:\n'
+    printf '           ssh %s\n' "$VM"
+    printf '           cat > %s/kankyouken-deploy/www/%s/config.json <<JSON\n' "$REMOTE" "$path"
+    printf '           {"mode":"remote","apiBase":"https://gr-stiftl.ndx.cit.tum.de","studyId":"<uuid>","anonKey":"<jwt>"}\n'
+    printf '           JSON\n'
+  fi
+done
 
 log "edge function sources"
 "${RSYNC[@]}" --delete "$PLATFORM/supabase/functions/" "$VM:$REMOTE/functions-src/"
