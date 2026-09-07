@@ -1,0 +1,2 @@
+# Mount point for a TUM-issued TLS cert (cert.pem + key.pem).
+# The cert files themselves are git-ignored — never commit private keys.

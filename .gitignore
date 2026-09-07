@@ -1,0 +1,15 @@
+.env
+*.pem
+*.key
+*.crt
+*.dump
+*.sql.gz
+volumes/
+
+# Built client bundles are artefacts, not source. They are produced by
+#   EnrolmentApp:  VITE_BASE_PATH=/signup/ npm run build
+#   FlashCardApp:  VITE_BASE_PATH=/study/  npm run build
+# and synced onto the VM by scripts/deploy.sh. Only hand-written pages
+# (the landing page, kanji-commons) are version-controlled under www/.
+www/signup/
+www/study/

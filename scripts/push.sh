@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Run this ON THE LAPTOP (from WSL — it needs rsync). Builds both clients, copies
+# everything the VM needs, and records exactly which commits were deployed.
+#
+#   scripts/push.sh              build + push
+#   scripts/push.sh --no-build   push what is already in dist/
+#   DRY=1 scripts/push.sh        show what rsync would do, change nothing
+#
+# There is no git clone on the VM and no deploy key: this is the whole delivery path.
+set -euo pipefail
+
+VM="${VM:-stiftl@gr-stiftl.ndx.cit.tum.de}"
+REMOTE="${REMOTE:-\$HOME/deploy}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # kankyouken-deploy
+PROJECTS="$(cd "$HERE/.." && pwd)"                        # ~/projects
+ENROL="$PROJECTS/EnrolmentApp"
+FLASH="$PROJECTS/FlashCardApp"
+PLATFORM="$PROJECTS/KanKyouKen"
+RSYNC=(rsync -az --info=stats1)
+[ -n "${DRY:-}" ] && RSYNC+=(--dry-run)
+
+log() { printf '\033[36m==>\033[0m %s\n' "$*"; }
+die() { printf '\033[31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
+
+command -v rsync >/dev/null || die "rsync not found — run this from WSL, not PowerShell"
+for p in "$ENROL" "$FLASH" "$PLATFORM"; do [ -d "$p" ] || die "missing repo: $p"; done
+
+sha() { git -C "$1" rev-parse --short HEAD 2>/dev/null || echo "uncommitted"; }
+dirty() { [ -n "$(git -C "$1" status --porcelain 2>/dev/null)" ] && echo " (DIRTY)" || echo ""; }
+
+# --- build ---------------------------------------------------------------------
+if [ "${1:-}" != "--no-build" ]; then
+  log "building EnrolmentApp for /signup/"
+  (cd "$ENROL" && VITE_BASE_PATH=/signup/ npm run build >/dev/null)
+  log "building FlashCardApp for /study/"
+  (cd "$FLASH" && VITE_BASE_PATH=/study/ npm run build >/dev/null)
+fi
+[ -f "$ENROL/dist/index.html" ] || die "EnrolmentApp/dist is empty — drop --no-build"
+[ -f "$FLASH/dist/index.html" ] || die "FlashCardApp/dist is empty — drop --no-build"
+
+# --- provenance ----------------------------------------------------------------
+# This is what we get instead of submodules: the exact commits behind what is live.
+cat > "$HERE/DEPLOYED.txt" <<EOF
+Deployed $(date -u +%Y-%m-%dT%H:%M:%SZ) from $(hostname)
+
+kankyouken-deploy  $(sha "$HERE")$(dirty "$HERE")
+EnrolmentApp       $(sha "$ENROL")$(dirty "$ENROL")
+FlashCardApp       $(sha "$FLASH")$(dirty "$FLASH")
+KanKyouKen         $(sha "$PLATFORM")$(dirty "$PLATFORM")
+
+A DIRTY marker means that repo had uncommitted changes when this was pushed,
+so the SHA does not fully describe what is running. Fix before recruiting.
+EOF
+log "provenance:"; sed 's/^/    /' "$HERE/DEPLOYED.txt"
+
+# --- push ----------------------------------------------------------------------
+# --delete keeps the VM honest, but volumes/ holds the fetched upstream tree and the
+# postgres data directory. Deleting that would be a very bad afternoon.
+log "config, scripts, static pages"
+"${RSYNC[@]}" --delete \
+  --exclude '.git/' --exclude 'volumes/' \
+  --exclude 'www/signup/' --exclude 'www/study/' \
+  "$HERE/" "$VM:$REMOTE/kankyouken-deploy/"
+
+log "client bundles"
+"${RSYNC[@]}" --delete "$ENROL/dist/" "$VM:$REMOTE/kankyouken-deploy/www/signup/"
+"${RSYNC[@]}" --delete "$FLASH/dist/" "$VM:$REMOTE/kankyouken-deploy/www/study/"
+
+log "edge function sources"
+"${RSYNC[@]}" --delete "$PLATFORM/supabase/functions/" "$VM:$REMOTE/functions-src/"
+
+cat <<NEXT
+
+  Pushed. On the VM:
+
+    cd ~/deploy/kankyouken-deploy
+    KANKYOUKEN_FUNCTIONS=~/deploy/functions-src scripts/deploy.sh
+
+  Static-only (no Supabase yet) — just reload the proxy:
+
+    docker compose exec web nginx -s reload     # while nginx still owns :443
+
+NEXT

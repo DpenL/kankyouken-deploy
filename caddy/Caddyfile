@@ -1,0 +1,54 @@
+# KanKyouKen pilot — TLS termination, static host, and API gateway.
+#
+# Caddy owns 443 and does two jobs:
+#   1. serves the static site and both study clients from /srv/www
+#   2. reverse-proxies the Supabase API surface to Kong on the internal network
+#
+# TLS — TUM/RBG-issued certificate, already on the VM at /var/lib/rbg-cert.
+#
+#   The files in live/ are SYMLINKS WITH ABSOLUTE TARGETS:
+#     live/host:f:….fullchain.pem -> /var/lib/rbg-cert/<timestamp>/host:f:….fullchain.pem
+#
+#   A container resolves that absolute path inside its own filesystem, so the host
+#   directory must be mounted at the IDENTICAL path — /var/lib/rbg-cert:/var/lib/rbg-cert:ro.
+#   Mount it anywhere else and every file lists correctly while every read fails with
+#   "No such file or directory". Verified 2026-09-06; cost three restarts to find.
+#
+#   Let's Encrypt remains possible (80/443 are public and DNS resolves), but the TUM
+#   cert is already issued, covers both names in its SAN, and runs to 2027-02-08.
+#   To switch back: delete the tls line below and Caddy auto-provisions.
+
+{$SITE_ADDRESS} {
+	tls "/var/lib/rbg-cert/live/host:f:ndxvm5.cit.tum.de.fullchain.pem" "/var/lib/rbg-cert/live/host:f:ndxvm5.cit.tum.de.privkey.pem"
+
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+	}
+
+	# --- Supabase API surface -> Kong (internal network, no published ports) ---
+	@api path /auth/* /rest/* /realtime/* /functions/*
+	handle @api {
+		reverse_proxy kong:8000
+	}
+
+	# --- Runtime config must never be cached. Flipping mode to "remote" has to take
+	#     effect on the next load, not when someone's browser decides to revalidate. ---
+	@runtimeconfig path /signup/config.json /study/config.json
+	header @runtimeconfig Cache-Control "no-store"
+
+	# --- Hashed asset filenames are content-addressed, so they cache hard. ---
+	@assets path /signup/assets/* /study/assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+
+	# --- Everything else is static: / , /kanji-commons/ , /signup/ , /study/
+	#     Both clients use hash routing (#/...), so the server only ever sees the
+	#     directory itself and file_server's index handling is sufficient. ---
+	handle {
+		root * /srv/www
+		file_server
+	}
+}
