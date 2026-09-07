@@ -31,6 +31,15 @@ services:
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./caddy/certs:/etc/caddy/certs:ro
+      # PILOT: the static site and both study clients. The Caddyfile does
+      # `root * /srv/www`; without this mount every path 404s.
+      - ./www:/srv/www:ro
+      # PILOT: the TUM/RBG certificate. The Caddyfile names it by absolute path,
+      # and the symlinks under live/ are themselves ABSOLUTE - they point at
+      # /var/lib/rbg-cert/<timestamp>/... So the mount point inside the container
+      # has to be the IDENTICAL path, not a tidier one. Mounting the parent
+      # somewhere else leaves dangling symlinks and Caddy refuses to start.
+      - /var/lib/rbg-cert:/var/lib/rbg-cert:ro
       - caddy-data:/data
       - caddy-config:/config
     environment:
