@@ -10,13 +10,17 @@
 set -euo pipefail
 
 VM="${VM:-stiftl@gr-stiftl.ndx.cit.tum.de}"
-REMOTE="${REMOTE:-\$HOME/deploy}"
+REMOTE="${REMOTE:-deploy}"   # relative: rsync and ssh both resolve it against ~ on the VM
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # kankyouken-deploy
 PROJECTS="$(cd "$HERE/.." && pwd)"                        # ~/projects
 ENROL="$PROJECTS/EnrolmentApp"
 FLASH="$PROJECTS/FlashCardApp"
 PLATFORM="$PROJECTS/KanKyouKen"
-RSYNC=(rsync -az --info=stats1)
+# --chmod is not cosmetic. The source lives on /mnt/c, and WSL reports every file
+# there as 0777; rsync -a preserves that faithfully, so without this the compose
+# file, the Caddyfile and every script land on the VM world-writable. That machine
+# will hold participant data.
+RSYNC=(rsync -az --info=stats1 --chmod=D750,F640)
 [ -n "${DRY:-}" ] && RSYNC+=(--dry-run)
 
 log() { printf '\033[36m==>\033[0m %s\n' "$*"; }
@@ -56,6 +60,9 @@ log "provenance:"; sed 's/^/    /' "$HERE/DEPLOYED.txt"
 # --- push ----------------------------------------------------------------------
 # --delete keeps the VM honest, but volumes/ holds the fetched upstream tree and the
 # postgres data directory. Deleting that would be a very bad afternoon.
+log "ensuring $REMOTE/ exists on the VM"
+ssh "$VM" "mkdir -p '$REMOTE'" || die "cannot create $REMOTE on $VM"
+
 log "config, scripts, static pages"
 "${RSYNC[@]}" --delete \
   --exclude '.git/' --exclude 'volumes/' \
@@ -89,6 +96,10 @@ for path in signup study; do
     printf '           JSON\n'
   fi
 done
+
+# The scripts have to be executable, and F640 just took that away.
+ssh "$VM" "chmod 750 '$REMOTE'/kankyouken-deploy/scripts/*.sh 2>/dev/null; chmod 750 '$REMOTE' '$REMOTE'/kankyouken-deploy" \
+  || die "could not fix permissions on $VM"
 
 log "edge function sources"
 "${RSYNC[@]}" --delete "$PLATFORM/supabase/functions/" "$VM:$REMOTE/functions-src/"
