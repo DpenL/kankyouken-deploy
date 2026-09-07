@@ -123,12 +123,24 @@ ssh "$VM" "chmod 750 '$REMOTE'/kankyouken-deploy/scripts/*.sh 2>/dev/null; chmod
 log "edge function sources"
 "${RSYNC[@]}" --delete "$PLATFORM/supabase/functions/" "$VM:$REMOTE/functions-src/"
 
+# The compose file starts Postgres but never creates the application schema, so
+# these have to travel too or the VM's database stays empty and every edge
+# function 500s. scripts/migrate.sh on the VM applies whatever lands here.
+log "database migrations"
+"${RSYNC[@]}" --delete "$PLATFORM/supabase/migrations/" "$VM:$REMOTE/migrations/"
+
 cat <<NEXT
 
   Pushed. On the VM:
 
     cd ~/deploy/kankyouken-deploy
     KANKYOUKEN_FUNCTIONS=~/deploy/functions-src scripts/deploy.sh
+
+  deploy.sh runs scripts/migrate.sh for you once the stack is healthy.
+  To apply schema changes on their own, or just to see where you stand:
+
+    scripts/migrate.sh --status
+    scripts/migrate.sh
 
   Static-only (no Supabase yet) — just reload the proxy:
 

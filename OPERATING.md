@@ -40,7 +40,19 @@ file. Forgetting the build used to be silent.
 |---|---|
 | Edge function | `scripts/deploy.sh` on the VM, or restart the `functions` container |
 | compose / Caddyfile | `docker compose --env-file ~/deploy/.env up -d` - recreates only what changed |
-| DB schema | a migration through `psql` |
+| DB schema | write a migration in `KanKyouKen/supabase/migrations/`, push, then `scripts/migrate.sh` on the VM |
+
+**Schema changes.** Add a file named `<timestamp>_<name>.sql` to
+`KanKyouKen/supabase/migrations/` — the same directory the Supabase CLI uses, so
+local dev, CI and the VM stay on one history. `push.sh` mirrors that directory
+into `~/deploy/migrations/`; `scripts/migrate.sh` on the VM applies whatever has
+not run yet, one transaction per file, and records it in
+`supabase_migrations.schema_migrations`. `scripts/migrate.sh --status` lists
+applied and pending without changing anything. `deploy.sh` calls it for you.
+
+Nothing in `docker-compose.yml` creates the schema. A stack brought up without
+this step has an empty `public`, and the only symptom you see is a 500 from the
+first edge function you call — see the traps at the bottom.
 
 `config.json` is **excluded** from the sync. The VM's copies are authoritative; the
 locally-built ones say `mode: "local"` and would take the deployment offline while
@@ -160,11 +172,14 @@ nano ~/deploy/.env && chmod 600 ~/deploy/.env
 cd ~/deploy/kankyouken-deploy
 scripts/fetch-upstream-volumes.sh
 docker compose --env-file ~/deploy/.env up -d db auth rest kong functions
-# 4. researcher auth user, then project + studies + study_roles rows
-# 5. www/signup/config.json and www/study/config.json
-# 6. event_schemas rows, one per study
-# 7. psql < patches/001_event_type_guard.sql
-# 8. scripts/deploy.sh   (brings up Caddy too)
+# 4. VM - schema. Nothing above creates it. Skip this and step 5 has no tables
+#    to write into, and the edge functions answer 500 without logging why.
+scripts/migrate.sh
+# 5. researcher auth user, then project + studies + study_roles rows
+# 6. www/signup/config.json and www/study/config.json
+# 7. event_schemas rows, one per study
+# 8. psql < patches/001_event_type_guard.sql
+# 9. scripts/deploy.sh   (brings up Caddy too)
 ```
 
 Moving the whole thing - the VM is decommissioned January 2027. `participants`, both
@@ -198,6 +213,42 @@ gunzip -c ~/backups/$(ls -t ~/backups | head -1) \
   | docker exec -i supabase-db psql -U postgres -d kankyouken_restoretest
 ```
 ## 6. Traps, all of which have already happened
+
+**Bringing up the stack does not create the schema.** `docker-compose.yml` starts
+Postgres with the Supabase bootstrap only. Every edge function then returns
+`500 Internal Server Error` on its first table lookup, and its own log says
+nothing, because the underlying failure is a PostgREST 404 that the function
+converts into `Errors.internal()`. The tell is in the `rest` container, not the
+`functions` one:
+
+```
+Schema cache loaded 0 Relations, 0 Relationships, 1 RPCs
+```
+
+Fix: `scripts/migrate.sh`. Cost an evening, chasing an edge-function bug that was
+never in the edge function.
+
+**Supabase's table grants are part of the bootstrap, and this image does not
+install them for `postgres`.** Hosted Supabase and `supabase start` grant ALL on
+every new table in `public` to `anon`, `authenticated` and `service_role` and let
+RLS do the narrowing. Here that has to be set explicitly, and it has to happen
+*before* the migrations run — a blanket GRANT afterwards would undo the REVOKEs
+the migrations themselves perform (002 revokes INSERT on `events`).
+`migrate.sh` does this. Without it PostgREST connects, sees the tables, and
+answers `permission denied` to everything.
+
+**Those same default grants are load-bearing for anything without RLS.** Four
+objects in the schema have RLS off, so the grant is the only control on them:
+`study_invitations` (single-use tokens that grant a role up to `owner`) and the
+`my_events` / `my_studies` / `my_projects` views, which are owned by `postgres`,
+so they see past RLS, and which Postgres treats as auto-updatable. Migration
+`20260907001_grant_hardening` revokes both. If you add a table without RLS,
+revoke by hand in the same migration — the default is open, not closed.
+
+**PostgREST caches the schema at connect time.** After a migration the tables
+exist and every request still 404s with `PGRST205` until something sends
+`NOTIFY pgrst, 'reload schema'`. `migrate.sh` does it; a container restart also
+works, and is what you will reach for if you applied SQL by hand.
 
 **The RBG certificate symlinks are absolute.** `/var/lib/rbg-cert/live/*.pem` point
 at `/var/lib/rbg-cert/<timestamp>/...`, so the mount inside the container must be

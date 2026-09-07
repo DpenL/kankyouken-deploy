@@ -77,4 +77,13 @@ while :; do
   sleep 5
 done
 
+# 5. schema ---------------------------------------------------------------------
+# Compose starts Postgres; it does not create the application schema. Skipping
+# this leaves a database with nothing in `public`, which surfaces much later and
+# much less legibly as a 500 from the first edge function anyone calls. Runs
+# after the health wait because it needs the db container up, and it is
+# idempotent, so re-running deploy.sh is still free.
+log "applying database migrations"
+ENV_FILE="$ENV_FILE" "$HERE/scripts/migrate.sh"
+
 log "done. smoke test:  scripts/smoke-test.sh"
