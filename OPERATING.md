@@ -175,20 +175,42 @@ docker compose --env-file ~/deploy/.env up -d db auth rest kong functions
 # 4. VM - schema. Nothing above creates it. Skip this and step 5 has no tables
 #    to write into, and the edge functions answer 500 without logging why.
 scripts/migrate.sh
-# 5. researcher auth user, then project + studies + study_roles rows
-# 6. www/signup/config.json and www/study/config.json
-# 7. event_schemas rows, one per study
-# 8. psql < patches/001_event_type_guard.sql
-# 9. scripts/deploy.sh   (brings up Caddy too)
+# 5. EITHER restore a backup (brings the account, studies and all data back):
+scripts/restore.sh ~/backups/kankyouken-<stamp>.sql.gz --into-live
+#    OR set up from scratch: researcher account at /admin/register, then a project
+#    and the two studies in the dashboard, then the event_schemas rows.
+# 6. VM - the two client configs, generated from the database, not typed:
+scripts/seed-config.sh
+# 7. psql < patches/001_event_type_guard.sql
+# 8. scripts/deploy.sh   (brings up Caddy and the dashboard too)
 ```
+
+**What a rebuild does and does not reconstruct.** The repos carry every file; the
+migrations carry the schema; a dump carries every row, including `auth.users` and
+`supabase_migrations.schema_migrations`. Two things are in neither, and both have
+bitten already:
+
+| not in any repo or dump | recovered by |
+|---|---|
+| `~/deploy/.env` | you, by hand. It is the only thing that cannot be regenerated. |
+| `www/*/config.json` | `scripts/seed-config.sh`, which reads the study ids back out of the database |
+
+`config.json` is excluded from every push on purpose - the locally-built copy says
+`mode: "local"`, and syncing it would take both clients offline while they carried on
+looking healthy. That exclusion used to mean the configs existed only as hand-typed
+files on the VM, in no repo and no dump; `seed-config.sh` closes that. It also cannot
+transpose a UUID or put the pilot id where the prescreening id belongs, which
+hand-copying can, and which would send consent to the wrong study silently.
+
+**Changing the schema without losing data.** A dump carries
+`supabase_migrations.schema_migrations`, so restoring an old dump onto a fresh stack
+and then running `scripts/migrate.sh` applies exactly the migrations that dump had
+not seen. Old data, new schema. That is the supported path - there is no need to
+choose between keeping the data and changing the structure.
 
 Moving the whole thing - the VM is decommissioned January 2027. `participants`, both
 sets of `consent_records` and every event live in one database linked by foreign
-keys, so a dump carries the lot intact:
-```bash
-scripts/backup.sh
-gunzip -c kankyouken-<stamp>.sql.gz | docker exec -i supabase-db psql -U postgres -d postgres
-```
+keys, so a dump carries the lot intact.
 
 Backups:
 ```bash
@@ -206,13 +228,40 @@ and appends it to `RETENTION-OVERRIDES.log`:
 RETENTION_OVERRIDE="under review at <venue>, submitted <date>" scripts/backup.sh
 ```
 
-Rehearse a restore once, before the study. An untested backup is a rumour.
+Rehearsing a restore is one command. It restores the newest dump into a scratch
+database, prints the row counts beside the live ones, and drops the scratch again:
 ```bash
-docker exec -i supabase-db psql -U postgres -c "CREATE DATABASE kankyouken_restoretest;"
-gunzip -c ~/backups/$(ls -t ~/backups | head -1) \
-  | docker exec -i supabase-db psql -U postgres -d kankyouken_restoretest
+scripts/restore.sh            # --keep leaves the scratch database for inspection
 ```
+
+Do it after any change to the schema or the stack, not once. The first run, on
+2026-09-08, found two faults that would each have made the backup useless on the day
+it was needed — see the traps below. Neither was visible from the fact that
+`backup.sh` exited 0 and wrote a plausible-looking 28 KB file.
 ## 6. Traps, all of which have already happened
+
+**A backup that exits 0 is not a backup that restores.** The first rehearsal, on
+2026-09-08, failed twice before it passed, and both faults were invisible from the
+backup side — `backup.sh` reported success and wrote a plausible 28 KB file each time.
+
+*First:* the dump was taken with `--clean --if-exists`, which emits, among 231 DROP
+statements, 37 of this shape:
+
+```
+DROP POLICY IF EXISTS study_script_config_write ON public.study_script_config;
+```
+
+`IF EXISTS` guards the **policy**, not the **table**. Restoring into an empty
+database — a new machine, a fresh volume, precisely what a backup is for — raises
+`relation "public.study_script_config" does not exist` and stops at statement 23 of
+231. Fixed by dumping plain; `restore.sh --into-live` documents giving the target an
+empty database first.
+
+*Second:* every Supabase-managed schema (`auth`, `storage`, `graphql`, `_realtime`)
+is owned by `supabase_admin`, so the dump contains `ALTER SCHEMA auth OWNER TO
+supabase_admin`. Restoring as `postgres` fails with `must be able to SET ROLE
+"supabase_admin"` — `postgres` is **not** a superuser in this image and cannot assume
+it. `supabase_admin` is, and can log in. Both scripts now use it.
 
 **Bringing up the stack does not create the schema.** `docker-compose.yml` starts
 Postgres with the Supabase bootstrap only. Every edge function then returns
