@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Game-based kanji learning — TU Munich</title>
+<meta name="description" content="A research programme at TU Munich on games for learning kanji. Open to teachers, researchers, game developers and learners.">
+<meta name="robots" content="index, follow">
+<meta property="og:title" content="Game-based kanji learning">
+<meta property="og:description" content="A research programme at TU Munich on games for learning kanji — and an open invitation to help decide what gets built.">
+<meta property="og:type" content="website">
+<!--
+  FONTS: deliberately system-only, no Google Fonts request.
+  Embedding fonts.googleapis.com from a German site transmits visitor IPs to Google
+  without consent - see the LG Munich I ruling (20.01.2022, 3 O 17493/20) and the
+  Abmahnung wave that followed. If you want the flyer's exact typography, self-host
+  the woff2 files locally and add @font-face here. Do not link Google's CDN.
+-->
+<style>
+  :root {
+    --paper:#f7f4ee; --ink:#16181d; --muted:#6b6a66; --body:#3a3c42;
+    --accent:#b03a1a; --gold:#c98a12; --line:#d8d3c7; --card:#fffdf9;
+    --display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  :root:not([data-theme="light"]) { }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:#14161b; --ink:#f2efe8; --muted:#9a9790; --body:#c9c6bd;
+      --accent:#ef7a4e; --gold:#e8b04b; --line:#2c303a; --card:#1b1e25;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:#14161b; --ink:#f2efe8; --muted:#9a9790; --body:#c9c6bd;
+    --accent:#ef7a4e; --gold:#e8b04b; --line:#2c303a; --card:#1b1e25;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink); font-family:var(--display); -webkit-font-smoothing:antialiased; }
+  .skip { position:absolute; left:-9999px; }
+  .skip:focus { left:12px; top:12px; background:var(--ink); color:var(--paper); padding:10px 14px; z-index:10; }
+  .wrap { max-width:1080px; margin:0 auto; padding:0 24px; }
+  a { color:var(--accent); }
+  a:hover { text-decoration:none; }
+
+  header.top { padding:28px 0 0; }
+  .brandrow { display:flex; flex-wrap:wrap; gap:14px; justify-content:space-between; align-items:baseline; }
+  .jp { font-weight:700; font-size:19px; letter-spacing:.12em; color:var(--accent); }
+  .kicker { font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); }
+
+  h1 { font-size:clamp(44px,9vw,88px); line-height:.94; letter-spacing:-.03em; font-weight:800; margin:28px 0 0; text-wrap:balance; }
+  .lede { font-size:clamp(18px,2.4vw,22px); line-height:1.45; color:var(--body); max-width:60ch; margin:22px 0 0; text-wrap:pretty; }
+
+  .cta { display:flex; flex-wrap:wrap; gap:12px; margin:28px 0 0; }
+  .btn { display:inline-block; padding:14px 22px; border-radius:2px; font-size:17px; font-weight:700; text-decoration:none; border:2px solid var(--ink); }
+  .btn-primary { background:var(--ink); color:var(--paper); }
+  .btn-primary:hover { background:transparent; color:var(--ink); }
+  .btn-ghost { color:var(--ink); }
+  .btn-ghost:hover { background:var(--ink); color:var(--paper); }
+
+  .undercta { font-size:15px; line-height:1.5; color:var(--muted); margin:14px 0 0; max-width:60ch; }
+  .rule { height:3px; background:var(--ink); margin:48px 0 0; }
+
+  .doors { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:24px; margin:36px 0 0; }
+  .door { background:var(--card); border:1px solid var(--line); padding:26px; display:flex; flex-direction:column; gap:12px; }
+  .door h2 { font-size:23px; line-height:1.12; letter-spacing:-.015em; margin:0; font-weight:800; }
+  .door p { font-size:16px; line-height:1.5; color:var(--body); margin:0; text-wrap:pretty; }
+  .door .go { margin-top:auto; padding-top:10px; font-weight:700; }
+  svg.ico { stroke:var(--accent); }
+
+  section { margin:64px 0 0; }
+  h3 { font-size:clamp(26px,4vw,34px); line-height:1.1; letter-spacing:-.02em; margin:0 0 16px; font-weight:800; }
+  .prose p { font-size:17px; line-height:1.6; color:var(--body); max-width:68ch; margin:0 0 14px; text-wrap:pretty; }
+
+  .band { background:var(--ink); color:var(--paper); padding:38px 0; margin:64px 0 0; }
+  .band h3 { color:var(--paper); }
+  .band .inner { display:flex; flex-wrap:wrap; gap:28px; align-items:center; justify-content:space-between; }
+  .band .txt { flex:1 1 380px; }
+  .band p { font-size:17px; line-height:1.5; margin:0 0 16px; max-width:60ch; color:#cdc9c0; }
+  @media (prefers-color-scheme: dark) { .band p { color:#b9b6ad; } }
+  .btn-gold { background:var(--gold); border-color:var(--gold); color:#16181d; }
+  .btn-gold:hover { background:transparent; color:var(--gold); }
+
+  footer { margin:56px 0 0; border-top:1px solid var(--line); padding:26px 0 60px; }
+  footer p { font-size:14px; line-height:1.6; color:var(--muted); margin:0 0 10px; max-width:70ch; }
+</style>
+</head>
+<body>
+<a class="skip" href="#doors">Skip to the three ways in</a>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brandrow">
+      <div class="jp" lang="ja">漢字 × ゲーム</div>
+      <div class="kicker">TU Munich · open invitation</div>
+    </div>
+
+    <h1>Game-based kanji learning.</h1>
+    <p class="lede">A research programme at TU Munich building games that teach kanji — and an open invitation to help decide what gets built. Three ways in, one room.</p>
+
+    <div class="cta">
+      <a class="btn btn-primary" href="https://discord.gg/XtnXeP9Ve">Join the Discord</a>
+      <a class="btn btn-ghost" href="https://docs.google.com/forms/d/e/1FAIpQLSeEEN_4OFHlIHFL-pcniZvTBMN82_HS460n1gNepDOHJ08Pcw/viewform">Teaching or researching? Shape the workshop &rarr;</a>
+    </div>
+    <p class="undercta">Everyone else — developers, students, learners, the merely curious — the Discord is the way in.</p>
+    <div class="rule"></div>
+  </header>
+
+  <div class="doors" id="doors">
+    <div class="door">
+      <svg class="ico" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5A2.5 2.5 0 0 1 5.5 3H11v17H5.5A2.5 2.5 0 0 0 3 22.5V5.5Z"/><path d="M21 5.5A2.5 2.5 0 0 0 18.5 3H13v17h5.5a2.5 2.5 0 0 1 2.5 2.5V5.5Z"/></svg>
+      <h2>You teach or research</h2>
+      <p>A <strong>kick-off co-design workshop</strong> at the beginning of the winter semester: teachers, researchers and developers designing together instead of in sequence.</p>
+      <p><strong>Format and date are both open</strong> — on site, online or hybrid. The questionnaire decides. Five minutes, and it is not a registration.</p>
+      <div class="go"><a href="https://docs.google.com/forms/d/e/1FAIpQLSeEEN_4OFHlIHFL-pcniZvTBMN82_HS460n1gNepDOHJ08Pcw/viewform">→ Take the questionnaire</a></div>
+    </div>
+
+    <div class="door">
+      <svg class="ico" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="12" rx="4"/><path d="M7 11v4M5 13h4M15.5 12.5h.01M18 15h.01"/></svg>
+      <h2>You build games</h2>
+      <p>A Masterpraktikum at TUM this winter, prototypes to break, and one unsolved problem: game design that carries the learning content instead of decorating it.</p>
+      <p>Mechanics, scope and tech are not set in stone. So far we are two. The earlier you write, the more of it you get to shape.</p>
+      <div class="go"><a href="https://discord.gg/XtnXeP9Ve">→ Come and argue with us</a></div>
+    </div>
+
+    <div class="door">
+      <svg class="ico" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16.5v-3.2c1.6 0 2.8-1.1 2.8-2.6S13.6 8 12 8s-2.8 1.1-2.8 2.6"/><path d="M12 19.2h.01"/></svg>
+      <h2>You are learning, or just curious</h2>
+      <p>No level requirement, nothing to prepare, no commitment. Play the prototypes early and tell us what is wrong with them.</p>
+      <p>Studies run from time to time. Members hear about them first.</p>
+      <div class="go"><a href="https://discord.gg/XtnXeP9Ve">→ Join the Discord</a></div>
+    </div>
+  </div>
+
+  <section class="prose">
+    <h3>What this actually is</h3>
+    <p>Kanji are not arbitrary. Almost every character decomposes into components that recur across thousands of others, and skilled readers exploit that structure constantly. Most software for learning kanji ignores it and drills characters as flat items.</p>
+    <p>This programme asks what happens when a game is built around that structure instead — and, just as importantly, whether it actually helps anyone learn. That means prototypes on one side and studies with real learners on the other, which is why it needs people from two fields that rarely share a room.</p>
+    <p>It runs at the Chair of N-Dimensional User Experience (Prof. Johanna Pirker) at TU Munich, with guided research supervised by Dr. David Plecher. A work-in-progress paper is being presented at GALA 2026.</p>
+  </section>
+</div>
+
+<div class="band">
+  <div class="wrap inner">
+    <div class="txt">
+      <h3>All three doors open onto the same room.</h3>
+      <p>One Discord for the whole programme — teachers, researchers, developers, learners, and people who are simply curious. Members hear about playtests first, and get to play what we build as part of the studies.</p>
+      <a class="btn btn-gold" href="https://discord.gg/XtnXeP9Ve">discord.gg/XtnXeP9Ve</a>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+  <section class="prose">
+    <h3>Get in touch</h3>
+    <p>Email <a href="mailto:david.stiftl@tum.de">david.stiftl@tum.de</a>, or message <strong>awaremono</strong> on Discord. And if this is not your moment — write anyway.</p>
+  </section>
+
+  <footer>
+    <!--
+      STILL OPEN - remove each line once it is done:
+      1. Impressum / Datenschutzerklaerung links below are placeholders.
+         A German site needs an Impressum (Sec. 5 DDG). Asking Plecher.
+      2. The questionnaire links point at the WORKING COPY of the form
+         (.../viewform?...1FAIpQLSeEEN...). Swap both to the final form
+         before this is announced anywhere. Two places: hero button and
+         the "You teach or research" card.
+      3. GALA 2026 sentence above - accepted or submitted? To be rewritten.
+    -->
+    <p><strong>David Stiftl</strong> · M.Sc. student, TU Munich · Chair of N-Dimensional User Experience (Prof. Johanna Pirker) · guided research supervised by Dr. David Plecher.</p>
+    <p><a href="[IMPRESSUM URL]">Impressum</a> · <a href="[DATENSCHUTZ URL]">Datenschutzerklärung</a></p>
+  </footer>
+</div>
+</body>
+</html>

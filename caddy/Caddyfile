@@ -35,6 +35,26 @@
 		reverse_proxy kong:8000
 	}
 
+	# --- The research dashboard -> the frontend container ---
+	#
+	# Behind basic auth, for two reasons that compound. ALLOW_PUBLIC_REGISTRATION=true is
+	# required by auth-register for the participant flow, so /admin/register would
+	# otherwise be an open signup; and that container holds SERVICE_ROLE_KEY, which makes
+	# it the highest-value target on the machine. RLS means a stranger who registered
+	# would see nothing, but "nothing to see" and "no door" are not the same thing on a
+	# system declared to an ethics board.
+	#
+	# Note this also gates the platform's own participant invite and consent routes
+	# (/admin/invite/*, /admin/study/*/consent). KN-202 does not use them - participants
+	# go through /signup and /study - but exempt them here if that ever changes.
+	@admin path /admin /admin/*
+	handle @admin {
+		basic_auth {
+			{$ADMIN_USER} {$ADMIN_PASSWORD_HASH}
+		}
+		reverse_proxy frontend:3000
+	}
+
 	# --- Runtime config must never be cached. Flipping mode to "remote" has to take
 	#     effect on the next load, not when someone's browser decides to revalidate. ---
 	@runtimeconfig path /signup/config.json /study/config.json

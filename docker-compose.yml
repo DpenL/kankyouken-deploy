@@ -45,6 +45,51 @@ services:
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS}
       CADDY_TLS: ${CADDY_TLS:-auto}
+      # Gate on /admin/*. Fail-closed: compose refuses to start without a hash,
+      # rather than publishing an unprotected admin surface.
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?not set - see .env.example}
+
+  # PILOT: the KanKyouKen research dashboard (KanKyouKen/frontend), served at /admin.
+  #
+  # It needs a Node process; it is not exportable. Server actions (register, projects,
+  # studies, invites, consent), @supabase/ssr cookie sessions, and proxy.ts - Next 16's
+  # renamed middleware - each rule out `output: export` on their own. That is what
+  # separates it from the two participant clients, which are Vite bundles off disk.
+  #
+  # Built on the VM rather than shipped as an artifact: node_modules carries platform
+  # native binaries, and building inside a linux/amd64 image sidesteps the same class of
+  # problem that stops the Vite clients building under WSL.
+  #
+  # No published ports. Caddy reaches it over the internal network exactly as it reaches
+  # Kong - Sven's allocation is 80 and 443 only.
+  frontend:
+    container_name: kankyouken-frontend
+    restart: unless-stopped
+    build:
+      context: ../frontend-src
+      dockerfile: ../kankyouken-deploy/docker/frontend.Dockerfile
+      args:
+        # NEXT_PUBLIC_* are inlined into the client bundle at build time, so they have to
+        # be build args, not runtime env. The anon key belongs in a public bundle - that
+        # is what it is for, and RLS is the control.
+        NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_PUBLIC_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
+        NEXT_PUBLIC_BASE_PATH: /admin
+        NEXT_PUBLIC_APP_URL: ${SUPABASE_PUBLIC_URL}/admin
+        # Independent of basePath: this is what makes the runtime stage able to copy
+        # a pruned server instead of a full node_modules.
+        NEXT_OUTPUT: standalone
+    environment:
+      # Server-side only, never reaches the browser. It is why the runtime stage of the
+      # Dockerfile carries no build toolchain and no dev dependencies.
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_PUBLIC_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
+      NEXT_PUBLIC_BASE_PATH: /admin
+      NEXT_PUBLIC_APP_URL: ${SUPABASE_PUBLIC_URL}/admin
+    expose:
+      - "3000"
 
   kong:
     container_name: supabase-kong

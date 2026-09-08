@@ -129,6 +129,16 @@ log "edge function sources"
 log "database migrations"
 "${RSYNC[@]}" --delete "$PLATFORM/supabase/migrations/" "$VM:$REMOTE/migrations/"
 
+# The dashboard is built ON THE VM, from source, inside a linux image - node_modules
+# here carries win32 native binaries and .next is a local build artifact, so both are
+# excluded rather than shipped. Everything else the build needs travels.
+log "dashboard source"
+"${RSYNC[@]}" --delete \
+  --exclude 'node_modules/' --exclude '.next/' --exclude 'test-results/' \
+  --exclude 'playwright-report/' --exclude '.env.local' --exclude '.env.local.devbackup' \
+  --exclude 'tsconfig.tsbuildinfo' \
+  "$PLATFORM/frontend/" "$VM:$REMOTE/frontend-src/"
+
 cat <<NEXT
 
   Pushed. On the VM:
