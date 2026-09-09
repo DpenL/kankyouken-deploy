@@ -30,7 +30,8 @@ where $WHERE order by s.name;
 
 \echo -- events (payload->>'client_event_id' repeated = a duplicate delivery) --
 select e.event_type, e.ts, e.payload->>'client_event_id' as client_event_id,
-       jsonb_array_length(coalesce(e.payload->'responses','[]'::jsonb)) as n_responses
+       case when jsonb_typeof(e.payload->'responses') = 'array'
+            then jsonb_array_length(e.payload->'responses') end as n_responses
 from public.events e
 join public.participants p on p.id = e.participant_id
 where $WHERE order by e.created_at;
